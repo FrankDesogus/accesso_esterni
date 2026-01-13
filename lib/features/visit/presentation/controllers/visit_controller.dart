@@ -34,16 +34,19 @@ class VisitController extends StateNotifier<VisitState> {
 
   final VisitRepository _repository;
 
-  /// Reset completo stato kiosk (utile quando torni alla home)
   void reset() {
     state = VisitState.initial;
   }
 
-  /// Crea una nuova visita in Odoo (draft).
-  /// Qui passiamo anche i campi extra (società, doc, hostName).
+  /// ✅ Crea una nuova visita in Odoo (draft).
+  /// Ora include anche title + company (che poi finiscono nel record visitatore su Odoo)
   Future<void> createVisit({
     required String firstName,
     required String lastName,
+
+    // ✅ NUOVO: titolo (Sig., Dott., Ing...)
+    String? title,
+
     String? reason,
     String? company,
     String? docType,
@@ -56,6 +59,7 @@ class VisitController extends StateNotifier<VisitState> {
       final visit = await _repository.createVisit(
         firstName: firstName,
         lastName: lastName,
+        title: title, // ✅ passa al repository
         reason: reason,
         company: company,
         docType: docType,
@@ -72,7 +76,6 @@ class VisitController extends StateNotifier<VisitState> {
     }
   }
 
-  /// Salva consenso privacy sulla visita corrente.
   Future<void> acceptPrivacy() async {
     final current = state.currentVisit;
     if (current == null) {
@@ -93,7 +96,6 @@ class VisitController extends StateNotifier<VisitState> {
     }
   }
 
-  /// Associa badge + registra ingresso + imposta stato checked_in.
   Future<void> assignBadgeAndCheckIn({required String badgeCode}) async {
     final current = state.currentVisit;
     if (current == null) {
@@ -118,23 +120,6 @@ class VisitController extends StateNotifier<VisitState> {
     }
   }
 
-  /// Registra uscita + libera il badge (non richiede currentVisit).
-  Future<void> checkOutByBadgeCode({required String badgeCode}) async {
-    state = state.copyWith(isLoading: true, errorMessage: null);
-
-    try {
-      await _repository.checkOutByBadgeCode(badgeCode: badgeCode);
-      state = state.copyWith(isLoading: false);
-    } catch (e) {
-      state = state.copyWith(
-        isLoading: false,
-        errorMessage: _cleanError(e),
-      );
-    }
-  }
-
-  /// Salva firma (PNG base64) e imposta consenso privacy=true.
-  /// Metodo aggiuntivo: non tocca il flusso esistente che usa [acceptPrivacy].
   Future<void> acceptPrivacyWithSignature({
     required String signaturePngBase64,
   }) async {
@@ -151,6 +136,7 @@ class VisitController extends StateNotifier<VisitState> {
         visit: current,
         signaturePngBase64: signaturePngBase64,
       );
+
       state = state.copyWith(currentVisit: saved, isLoading: false);
     } catch (e) {
       state = state.copyWith(
@@ -160,9 +146,22 @@ class VisitController extends StateNotifier<VisitState> {
     }
   }
 
+  Future<void> checkOutByBadgeCode({required String badgeCode}) async {
+    state = state.copyWith(isLoading: true, errorMessage: null);
+
+    try {
+      await _repository.checkOutByBadgeCode(badgeCode: badgeCode);
+      state = state.copyWith(isLoading: false);
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        errorMessage: _cleanError(e),
+      );
+    }
+  }
 
   String _cleanError(Object e) {
-    // normalizza OdooException e altri errori in stringa leggibile
-    return e.toString().replaceFirst('OdooException: ', '');
+    final s = e.toString();
+    return s.replaceFirst('Exception: ', '').trim();
   }
 }

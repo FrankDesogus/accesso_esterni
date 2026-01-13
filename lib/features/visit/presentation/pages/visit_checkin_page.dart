@@ -40,6 +40,20 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
   final _companyController = TextEditingController();
   final _docNumberController = TextEditingController();
 
+  // ✅ TITOLO (Sig., Sig.na, Dott., Ing, ...)
+  static const List<String> _titleOptions = [
+    'Sig.',
+    'Sig.ra',
+    'Sig.na',
+    'Dott.',
+    'Dott.ssa',
+    'Ing.',
+    'Avv.',
+    'Prof.',
+    'Prof.ssa',
+  ];
+  String? _titleValue;
+
   // ✅ VISITOR AUTOCOMPLETE (fix più probabile: controller corretto di Autocomplete)
   TextEditingController? _visitorFieldController; // sarà quello fornito da Autocomplete
   bool _visitorListenerAttached = false;
@@ -122,6 +136,8 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
     _reasonController.clear();
     _companyController.clear();
     _docNumberController.clear();
+
+    _titleValue = null;
 
     _docTypeValue = null;
 
@@ -219,6 +235,9 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
           'x_studio_cognome',
           'x_studio_tipo_di_documento',
           'x_studio_numero_documento',
+          // ✅ nuovi campi (devono esistere su x_visitatori)
+          'x_studio_societa',
+          'x_studio_titolo',
         ],
         limit: 20,
       );
@@ -245,6 +264,8 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
           cognome: cognome,
           docTipoValue: row['x_studio_tipo_di_documento']?.toString().trim(),
           docNumero: row['x_studio_numero_documento']?.toString().trim(),
+          company: row['x_studio_societa']?.toString().trim(),
+          title: row['x_studio_titolo']?.toString().trim(),
         ));
       }
 
@@ -283,6 +304,18 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
 
     _firstNameController.text = v.nome;
     _lastNameController.text = v.cognome;
+
+    // ✅ Società
+    if (v.company != null && v.company!.trim().isNotEmpty) {
+      _companyController.text = v.company!.trim();
+    }
+
+    // ✅ Titolo
+    if (v.title != null && v.title!.trim().isNotEmpty) {
+      final t = v.title!.trim();
+      final exists = _titleOptions.any((x) => x == t);
+      setState(() => _titleValue = exists ? t : null);
+    }
 
     final tipo = v.docTipoValue;
     if (tipo != null && tipo.isNotEmpty) {
@@ -485,6 +518,7 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
       setState(() {
         _hosts = const [];
         _loadingHosts = false;
+        _loadingHosts = false;
         _hostsError = e.toString();
       });
       debugPrint('[HOSTS] END ERROR: $e');
@@ -529,6 +563,7 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
     await controller.createVisit(
       firstName: _firstNameController.text.trim(),
       lastName: _lastNameController.text.trim(),
+      title: _titleValue,
       reason: _reasonController.text.trim().isEmpty ? null : _reasonController.text.trim(),
       company: _companyController.text.trim().isEmpty ? null : _companyController.text.trim(),
       docType: _docTypeValue,
@@ -717,6 +752,25 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
                             style: const TextStyle(color: Colors.red),
                           ),
                         ],
+                        const SizedBox(height: 16),
+
+                        // ✅ TITOLO
+                        DropdownButtonFormField<String>(
+                          value: _titleValue,
+                          isExpanded: true,
+                          items: _titleOptions
+                              .map((t) => DropdownMenuItem<String>(
+                            value: t,
+                            child: Text(t),
+                          ))
+                              .toList(),
+                          onChanged: state.isLoading ? null : (v) => setState(() => _titleValue = v),
+                          decoration: const InputDecoration(
+                            labelText: 'Titolo *',
+                            border: OutlineInputBorder(),
+                          ),
+                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Seleziona un titolo' : null,
+                        ),
                         const SizedBox(height: 16),
 
                         TextFormField(
@@ -965,6 +1019,10 @@ class _VisitorOption {
   final String nome;
   final String cognome;
 
+  // ✅ nuovi campi (x_visitatori)
+  final String? company;
+  final String? title;
+
   /// value reale del selection su Odoo (es: Carta_Identità)
   final String? docTipoValue;
 
@@ -974,6 +1032,8 @@ class _VisitorOption {
     required this.id,
     required this.nome,
     required this.cognome,
+    this.company,
+    this.title,
     this.docTipoValue,
     this.docNumero,
   });

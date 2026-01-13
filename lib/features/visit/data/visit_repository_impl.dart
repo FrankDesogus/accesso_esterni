@@ -13,17 +13,24 @@ class VisitRepositoryImpl implements VisitRepository {
   Future<Visit> createVisit({
     required String firstName,
     required String lastName,
+
+    // ✅ NUOVO
+    String? title,
+
     String? reason,
     String? company,
     String? docType,
     String? docNumber,
     String? hostName,
   }) async {
-    // 1) Costruisco il draft Visit (come prima: UI -> domain model)
+    // 1) Costruisco il draft Visit (UI -> domain model)
     final draft = Visit(
       id: null,
       firstName: firstName,
       lastName: lastName,
+
+      // ✅ NUOVO (serve che anche il model Visit lo supporti)
+
       reason: reason,
       company: company,
       docType: docType,
@@ -43,6 +50,10 @@ class VisitRepositoryImpl implements VisitRepository {
       docTipo: docType ?? '',
       docNumero: docNumber ?? '',
       docScadenzaIsoDate: null, // se hai la scadenza in UI, passala qui "YYYY-MM-DD"
+
+      // ✅ NUOVI CAMPI ODOO
+      societa: company,
+      titolo: title,
     );
 
     // 3) Creo la VISITA (x_visite_esterne) collegata al visitorId + snapshot documento
