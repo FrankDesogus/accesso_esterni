@@ -14,27 +14,51 @@ class VisitRepositoryImpl implements VisitRepository {
     required String firstName,
     required String lastName,
 
-    // ✅ NUOVO
+    // ✅ Titolo: opzionale (NON blocchiamo qui)
     String? title,
 
     String? reason,
     String? company,
     String? docType,
     String? docNumber,
+
+    // ✅ NUOVO: scadenza documento raccolta in UI
+    DateTime? docExpiry,
+
     String? hostName,
   }) async {
+    // Converte DateTime -> "YYYY-MM-DD" per campi Odoo Date
+    String? toIsoDateOrNull(DateTime? d) {
+      if (d == null) return null;
+      final y = d.year.toString().padLeft(4, '0');
+      final m = d.month.toString().padLeft(2, '0');
+      final day = d.day.toString().padLeft(2, '0');
+      return '$y-$m-$day';
+    }
+
+    final docExpiryIso = toIsoDateOrNull(docExpiry);
+
     // 1) Costruisco il draft Visit (UI -> domain model)
+    //    ✅ IMPORTANT: passiamo anche la scadenza se il model Visit la supporta.
+    //    - Se il tuo Visit ha già un campo (es. docExpiry/documentExpiry) usalo qui.
+    //    - Se NON esiste ancora, questo compilerà solo dopo che lo aggiungi nel model Visit.
     final draft = Visit(
       id: null,
       firstName: firstName,
       lastName: lastName,
 
-      // ✅ NUOVO (serve che anche il model Visit lo supporti)
+      // title è opzionale: se il model Visit lo prevede, puoi salvarlo lì,
+      // altrimenti lo gestiamo solo per Visitatori tramite _visitorRemote.
+      // title: title,
 
       reason: reason,
       company: company,
       docType: docType,
       docNumber: docNumber,
+
+      // ✅ NUOVO (da aggiungere anche nel model Visit, vedi nota sopra)
+      docExpiry: docExpiry,
+
       hostId: null,
       hostName: hostName,
       privacyAccepted: false,
@@ -49,14 +73,18 @@ class VisitRepositoryImpl implements VisitRepository {
       cognome: lastName,
       docTipo: docType ?? '',
       docNumero: docNumber ?? '',
-      docScadenzaIsoDate: null, // se hai la scadenza in UI, passala qui "YYYY-MM-DD"
 
-      // ✅ NUOVI CAMPI ODOO
+      // ✅ Obiettivo #2: salva scadenza su Visitatori (x_scadenza_documento)
+      docScadenzaIsoDate: docExpiryIso,
+
+      // (mantengo invariati)
       societa: company,
       titolo: title,
     );
 
     // 3) Creo la VISITA (x_visite_esterne) collegata al visitorId + snapshot documento
+    //    La scadenza verrà snapshot-tata dal VisitRemoteDataSource (fSnapDocExpiry)
+    //    leggendo dal draft (docExpiry) oppure da toJson() a seconda del tuo model.
     final created = await _remote.createVisit(
       visit: draft,
       visitorId: visitorId,

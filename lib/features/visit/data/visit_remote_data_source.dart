@@ -8,6 +8,11 @@ class VisitRemoteDataSource {
   VisitRemoteDataSource(this._odoo);
   final OdooJsonRpcClient _odoo;
 
+  // =========================
+  // DEBUG
+  // =========================
+  static const bool _debug = true;
+
   // ===========================================================================
   // ✅ NOMI TECNICI REALI (ODOO STUDIO) — MODIFICA SOLO QUI SE CAMBIANO
   // ===========================================================================
@@ -16,12 +21,10 @@ class VisitRemoteDataSource {
   static const String fVisitName = 'x_name';
 
   /// Link al VISITATORE (Many2one -> x_visitatori)
-  /// ⚠️ Se il tuo campo si chiama diversamente, cambia qui.
-  /// Esempi tipici Studio: x_studio_visitatore / x_studio_visitatore_id
   static const String fVisitVisitorId = 'x_studio_visitatore';
 
   /// Campi visita
-  static const String fVisitCompany = 'x_studio_societ';
+  static const String fVisitCompany = 'x_studio_societa';
   static const String fVisitReason = 'x_studio_motivo_accesso';
   static const String fVisitHost = 'x_studio_persona_da_visitare';
 
@@ -48,13 +51,9 @@ class VisitRemoteDataSource {
   static const String fBadgeCurrentVisit = 'x_studio_visita_corrente';
 
   // ===========================================================================
-  // CREATE VISIT (NUOVA ARCHITETTURA: visitorId + snapshot doc)
+  // CREATE VISIT (visitorId + snapshot doc)
   // ===========================================================================
 
-  /// Crea una visita collegata a un visitatore esistente (x_visitatori)
-  /// e salva lo snapshot documento sulla visita.
-  ///
-  /// ✅ Ora serve visitorId (Many2one).
   Future<Visit> createVisit({
     required Visit visit,
     required int visitorId,
@@ -80,24 +79,18 @@ class VisitRemoteDataSource {
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} '
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
 
-    // ⚠️ Snapshot doc: usa i campi del modello Visit già presenti nella UI
+    // Snapshot doc
     final docTypeSnap = visit.docType?.trim();
     final docNumberSnap = visit.docNumber?.trim();
 
-    // Se nel tuo model Visit hai una scadenza, prova a leggerla.
-    // Nel caso non esista, resta null e non viene inviata.
-    final dynamic maybeExpiry = _tryGet(visit, 'docExpiry') ??
-        _tryGet(visit, 'docExpiryDate') ??
-        _tryGet(visit, 'docExpiration') ??
-        _tryGet(visit, 'docExpirationDate');
-
-    final String? docExpiryIsoDate = _toIsoDateOrNull(maybeExpiry);
+    // ✅ DEBUG FIX: leggi la scadenza direttamente dal model Visit (non via toJson)
+    final String? docExpiryIsoDate = _toIsoDateOrNull(visit.docExpiry);
 
     final values = <String, dynamic>{
       // Record name obbligatorio
       fVisitName: recordName,
 
-      // ✅ link visitatore
+      // link visitatore
       fVisitVisitorId: visitorId,
 
       // Campi visita
@@ -115,17 +108,39 @@ class VisitRemoteDataSource {
       // Privacy iniziale
       fVisitPrivacyAccepted: visit.privacyAccepted == true,
 
-      // ✅ Snapshot documento (storico)
+      // Snapshot documento (storico)
       if (docTypeSnap != null && docTypeSnap.isNotEmpty)
         fSnapDocType: normalizeOdooSelection(docTypeSnap),
 
       if (docNumberSnap != null && docNumberSnap.isNotEmpty)
         fSnapDocNumber: docNumberSnap,
 
+      // ✅ scadenza documento snapshot
       if (docExpiryIsoDate != null) fSnapDocExpiry: docExpiryIsoDate,
     };
 
+    if (_debug) {
+      // ignore: avoid_print
+      print('[CREATE VISIT] docExpiryRaw=${visit.docExpiry} docExpiryIso=$docExpiryIsoDate');
+      // ignore: avoid_print
+      print('[CREATE VISIT] payload values=$values');
+    }
+
     final id = await _odoo.create(model: AppConfig.visitModel, values: values);
+
+    // ✅ DEBUG: readback immediato (capisci se Odoo ha salvato davvero)
+    if (_debug) {
+      final rb = await _odoo.searchRead(
+        model: AppConfig.visitModel,
+        domain: [
+          ['id', '=', id],
+        ],
+        fields: [fSnapDocExpiry, fSnapDocType, fSnapDocNumber],
+        limit: 1,
+      );
+      // ignore: avoid_print
+      print('[CREATE VISIT] created id=$id readback=${rb.isNotEmpty ? rb.first : rb}');
+    }
 
     return visit.copyWith(
       id: id.toString(),
@@ -150,9 +165,6 @@ class VisitRemoteDataSource {
     return visit.copyWith(privacyAccepted: true);
   }
 
-  /// Salva firma (campo Image) come base64 PNG e imposta consenso privacy=true.
-  ///
-  /// Nota: per i campi Image Odoo si aspetta una stringa base64 (senza data URI).
   Future<Visit> acceptPrivacyWithSignature({
     required Visit visit,
     required String signaturePngBase64,
@@ -179,11 +191,6 @@ class VisitRemoteDataSource {
   // BADGE + CHECK-IN
   // ===========================================================================
 
-  /// Flusso:
-  /// 1) cerca badge per codice (fBadgeCode)
-  /// 2) check attivo + libero (visita_corrente false/null)
-  /// 3) badge.write(visita_corrente = visitId)
-  /// 4) visita.write(badge = badgeId, ingresso=now, stato=checked_in, privacy=true)
   Future<Visit> assignBadgeAndCheckIn({
     required Visit visit,
     required String badgeCode,
@@ -213,7 +220,6 @@ class VisitRemoteDataSource {
     final badgeId = b['id'] as int;
     final attivo = b[fBadgeActive] == true;
 
-    // Many2one in search_read: false oppure [id, name]
     final visitaCorrente = b[fBadgeCurrentVisit];
     final isFree = visitaCorrente == false || visitaCorrente == null;
 
@@ -224,7 +230,6 @@ class VisitRemoteDataSource {
       throw OdooException('Badge già assegnato');
     }
 
-    // 3) assegna badge -> visita corrente
     final okBadge = await _odoo.write(
       model: AppConfig.badgeModel,
       ids: [badgeId],
@@ -234,7 +239,6 @@ class VisitRemoteDataSource {
       throw OdooException('Impossibile assegnare la visita al badge');
     }
 
-    // 4) aggiorna visita
     final now = DateTime.now();
     final nowStr = _formatOdooDateTime(now);
 
@@ -245,7 +249,6 @@ class VisitRemoteDataSource {
         fVisitBadge: badgeId,
         fVisitCheckIn: nowStr,
         fVisitState: 'checked_in',
-        // forzo anche privacy true al check-in
         fVisitPrivacyAccepted: true,
       },
     );
@@ -264,11 +267,6 @@ class VisitRemoteDataSource {
   // CHECK-OUT
   // ===========================================================================
 
-  /// Check-out:
-  /// - trova badge
-  /// - legge visita corrente
-  /// - visita: uscita + stato checked_out
-  /// - badge: visita_corrente = false
   Future<void> checkOutByBadgeCode({required String badgeCode}) async {
     final badges = await _odoo.searchRead(
       model: AppConfig.badgeModel,
@@ -368,9 +366,17 @@ class VisitRemoteDataSource {
     return '$y-$m-$d $hh:$mm:$ss';
   }
 
-  /// Estrae un campo se il modello Visit dovesse averlo (senza dipendere da esso).
-  /// Se non esiste, ritorna null.
-  static dynamic _tryGet(Object obj, String fieldName) {
+  // Lasciati per compatibilità (non usati per docExpiry nel debug fix)
+  static dynamic _tryGetProp(Object obj, String fieldName) {
+    try {
+      // ignore: avoid_dynamic_calls
+      return (obj as dynamic).toJson()[fieldName];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static dynamic _tryGetJson(Object obj, String fieldName) {
     try {
       // ignore: avoid_dynamic_calls
       return (obj as dynamic).toJson()[fieldName];

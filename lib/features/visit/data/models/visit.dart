@@ -12,6 +12,12 @@ class Visit {
   final String? docType;    // x_studio_tipo_documento (selection value/key)
   final String? docNumber;  // x_studio_numero_documento
 
+  // ✅ NUOVO: scadenza documento (Date)
+  // Usata:
+  // - per salvare su x_visitatori.x_scadenza_documento
+  // - per snapshot su x_visite_esterne.x_doc_scadenza_snap
+  final DateTime? docExpiry;
+
   // Host (Many2one hr.employee)
   final int? hostId;        // x_studio_persona_da_visitare (ID)
   final String? hostName;   // solo per UI, risolto poi a hostId
@@ -33,6 +39,9 @@ class Visit {
     this.docType,
     this.docNumber,
 
+    // ✅ NUOVO
+    this.docExpiry,
+
     this.hostId,
     this.hostName,
 
@@ -52,6 +61,9 @@ class Visit {
     String? docType,
     String? docNumber,
 
+    // ✅ NUOVO
+    DateTime? docExpiry,
+
     int? hostId,
     String? hostName,
 
@@ -69,6 +81,9 @@ class Visit {
       company: company ?? this.company,
       docType: docType ?? this.docType,
       docNumber: docNumber ?? this.docNumber,
+
+      // ✅ NUOVO
+      docExpiry: docExpiry ?? this.docExpiry,
 
       hostId: hostId ?? this.hostId,
       hostName: hostName ?? this.hostName,

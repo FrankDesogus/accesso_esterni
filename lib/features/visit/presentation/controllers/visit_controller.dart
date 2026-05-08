@@ -40,17 +40,22 @@ class VisitController extends StateNotifier<VisitState> {
 
   /// ✅ Crea una nuova visita in Odoo (draft).
   /// Ora include anche title + company (che poi finiscono nel record visitatore su Odoo)
+  /// e la scadenza documento (salvata su Visitatori e snapshot su Visite).
   Future<void> createVisit({
     required String firstName,
     required String lastName,
 
-    // ✅ NUOVO: titolo (Sig., Dott., Ing...)
+    // ✅ titolo (opzionale)
     String? title,
 
     String? reason,
     String? company,
     String? docType,
     String? docNumber,
+
+    // ✅ NUOVO: scadenza documento
+    DateTime? docExpiry,
+
     String? hostName,
   }) async {
     state = state.copyWith(isLoading: true, errorMessage: null);
@@ -59,11 +64,12 @@ class VisitController extends StateNotifier<VisitState> {
       final visit = await _repository.createVisit(
         firstName: firstName,
         lastName: lastName,
-        title: title, // ✅ passa al repository
+        title: title,
         reason: reason,
         company: company,
         docType: docType,
         docNumber: docNumber,
+        docExpiry: docExpiry, // ✅ passa al repository
         hostName: hostName,
       );
 

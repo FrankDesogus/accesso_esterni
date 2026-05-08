@@ -9,6 +9,10 @@ abstract class VisitRepository {
     String? company,
     String? docType,
     String? docNumber,
+
+    // ✅ NUOVO: scadenza documento (campo Date su Odoo, formato YYYY-MM-DD nel datasource)
+    DateTime? docExpiry,
+
     String? hostName,
   });
 

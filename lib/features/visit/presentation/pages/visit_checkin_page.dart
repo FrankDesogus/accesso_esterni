@@ -54,6 +54,24 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
   ];
   String? _titleValue;
 
+  // ✅ MOTIVO VISITA: dropdown + textbox solo se "Altro"
+  static const List<String> _reasonOptions = [
+    'Colloquio',
+    'Direzione Generale',
+    'Direzione Stabilimento',
+    'Direzione Acquisti',
+    'Direzione Tecnica',
+    'Direzione Di Produzione',
+    'Officina Meccanica',
+    'Amministrazione',
+    // aggiungi qui altre opzioni...
+    'Altro',
+  ];
+  String? _reasonSelected;
+
+  // ✅ Scadenza documento (opzionale)
+  DateTime? _docExpiry;
+
   // ✅ VISITOR AUTOCOMPLETE (fix più probabile: controller corretto di Autocomplete)
   TextEditingController? _visitorFieldController; // sarà quello fornito da Autocomplete
   bool _visitorListenerAttached = false;
@@ -85,7 +103,7 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
   static const String _modelVisitor = 'x_visitatori';
   static const String _fieldVisitor = 'x_studio_tipo_di_documento';
 
-  static const String _modelVisit = 'x_visite_esterne';
+  static const String _modelVisit = 'x_visite';
   static const String _fieldVisit = 'x_studio_tipo_di_documento_visita';
 
   @override
@@ -114,8 +132,9 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
   // ---------------------------
   // DEBUG HELPERS
   // ---------------------------
-  String _hexCodepoints(String s) =>
-      s.runes.map((r) => 'U+${r.toRadixString(16).toUpperCase().padLeft(4, '0')}').join(' ');
+  String _hexCodepoints(String s) => s.runes
+      .map((r) => 'U+${r.toRadixString(16).toUpperCase().padLeft(4, '0')}')
+      .join(' ');
 
   void _logOption(SelectionOption o, String tag) {
     debugPrint('$tag value="${o.value}" label="${o.label}"');
@@ -138,6 +157,11 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
     _docNumberController.clear();
 
     _titleValue = null;
+
+    // ✅ reset motivo visita
+    _reasonSelected = null;
+
+    _docExpiry = null;
 
     _docTypeValue = null;
 
@@ -238,6 +262,7 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
           // ✅ nuovi campi (devono esistere su x_visitatori)
           'x_studio_societa',
           'x_studio_titolo',
+          'x_studio_scadenza_documento',
         ],
         limit: 20,
       );
@@ -266,6 +291,7 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
           docNumero: row['x_studio_numero_documento']?.toString().trim(),
           company: row['x_studio_societa']?.toString().trim(),
           title: row['x_studio_titolo']?.toString().trim(),
+          docExpiry: _parseOdooDate(row['x_studio_scadenza_documento']), // ✅ AGGIUNTO
         ));
       }
 
@@ -316,6 +342,10 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
       final exists = _titleOptions.any((x) => x == t);
       setState(() => _titleValue = exists ? t : null);
     }
+    if (v.docExpiry != null) {
+      setState(() => _docExpiry = v.docExpiry);
+    }
+
 
     final tipo = v.docTipoValue;
     if (tipo != null && tipo.isNotEmpty) {
@@ -344,13 +374,11 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
 
     debugPrint('[DOC_TYPES] fields_get START model=$model field=$fieldName');
 
-    final fields = await odoo
-        .fieldsGet(
+    final fields = await odoo.fieldsGet(
       model: model,
       fieldNames: [fieldName],
       attributes: const ['selection', 'type', 'string', 'required', 'readonly'],
-    )
-        .timeout(const Duration(seconds: 15));
+    ).timeout(const Duration(seconds: 15));
 
     final fieldInfo = fields[fieldName];
     if (fieldInfo is! Map) {
@@ -361,7 +389,9 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
 
     final selection = fieldInfo['selection'];
     if (selection is! List) {
-      throw Exception('fields_get: selection non valida per $model.$fieldName (got ${selection.runtimeType})');
+      throw Exception(
+        'fields_get: selection non valida per $model.$fieldName (got ${selection.runtimeType})',
+      );
     }
 
     debugPrint('[DOC_TYPES] $model.$fieldName selection RAW len=${selection.length}');
@@ -434,7 +464,7 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
   }
 
   // ---------------------------
-  // HOSTS (tuo originale)
+  // HOSTS
   // ---------------------------
   Future<void> _loadHosts() async {
     debugPrint('[HOSTS] START');
@@ -518,7 +548,6 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
       setState(() {
         _hosts = const [];
         _loadingHosts = false;
-        _loadingHosts = false;
         _hostsError = e.toString();
       });
       debugPrint('[HOSTS] END ERROR: $e');
@@ -568,8 +597,16 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
       company: _companyController.text.trim().isEmpty ? null : _companyController.text.trim(),
       docType: _docTypeValue,
       docNumber: _docNumberController.text.trim().isEmpty ? null : _docNumberController.text.trim(),
+      docExpiry: _docExpiry,
       hostName: (_selectedHostName == null || _selectedHostName!.trim().isEmpty) ? null : _selectedHostName!.trim(),
     );
+  }
+
+  String _formatUiDate(DateTime d) {
+    final dd = d.day.toString().padLeft(2, '0');
+    final mm = d.month.toString().padLeft(2, '0');
+    final yyyy = d.year.toString();
+    return '$dd/$mm/$yyyy';
   }
 
   @override
@@ -604,6 +641,11 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
 
     return KioskScaffold(
       title: 'Benvenuto',
+      showBack: _mode == _HomeMode.checkin,
+      onBack: () {
+        _resetFormUi(); // già esiste nel file
+        setState(() => _mode = _HomeMode.none);
+      },
       child: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24.0),
@@ -675,7 +717,7 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        // ✅ VISITATORE ABITUALE (la soluzione più probabile)
+                        // ✅ VISITATORE ABITUALE
                         Autocomplete<_VisitorOption>(
                           displayStringForOption: (o) => o.display,
                           optionsBuilder: (TextEditingValue value) {
@@ -695,11 +737,9 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
                               debugPrint('[VISITOR] onSelected -> ${opt.display}');
                             }
                             _applyVisitorAutofill(opt);
-                            // Autocomplete inserisce già il testo nel suo controller
                             FocusScope.of(context).unfocus();
                           },
                           fieldViewBuilder: (context, textController, focusNode, onFieldSubmitted) {
-                            // ✅ fondamentale: usare il controller fornito da Autocomplete
                             _ensureVisitorListener(textController);
 
                             return TextFormField(
@@ -754,7 +794,7 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
                         ],
                         const SizedBox(height: 16),
 
-                        // ✅ TITOLO
+                        // ✅ TITOLO (opzionale)
                         DropdownButtonFormField<String>(
                           value: _titleValue,
                           isExpanded: true,
@@ -766,10 +806,10 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
                               .toList(),
                           onChanged: state.isLoading ? null : (v) => setState(() => _titleValue = v),
                           decoration: const InputDecoration(
-                            labelText: 'Titolo *',
+                            labelText: 'Titolo (opzionale)',
                             border: OutlineInputBorder(),
                           ),
-                          validator: (v) => (v == null || v.trim().isEmpty) ? 'Seleziona un titolo' : null,
+                          validator: (_) => null,
                         ),
                         const SizedBox(height: 16),
 
@@ -804,8 +844,10 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
                           const LinearProgressIndicator(),
                           const SizedBox(height: 16),
                         ] else if (_hostsError != null) ...[
-                          Text('Errore caricamento persone da visitare:\n$_hostsError',
-                              style: const TextStyle(color: Colors.red)),
+                          Text(
+                            'Errore caricamento persone da visitare:\n$_hostsError',
+                            style: const TextStyle(color: Colors.red),
+                          ),
                           const SizedBox(height: 8),
                           ElevatedButton(onPressed: _loadHosts, child: const Text('Riprova')),
                           const SizedBox(height: 16),
@@ -823,15 +865,17 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
                           const SizedBox(height: 16),
                         ],
 
-                        // DOC TYPES dropdown: sempre “non bloccata”
+                        // DOC TYPES dropdown
                         if (_loadingDocTypes) ...[
                           const Text('Carico tipi documento...'),
                           const SizedBox(height: 8),
                           const LinearProgressIndicator(),
                           const SizedBox(height: 16),
                         ] else if (_docTypesError != null) ...[
-                          Text('Errore caricamento tipi documento:\n$_docTypesError',
-                              style: const TextStyle(color: Colors.red)),
+                          Text(
+                            'Errore caricamento tipi documento:\n$_docTypesError',
+                            style: const TextStyle(color: Colors.red),
+                          ),
                           const SizedBox(height: 8),
                           ElevatedButton(onPressed: _loadDocTypeOptions, child: const Text('Riprova')),
                           const SizedBox(height: 16),
@@ -874,14 +918,84 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
                         ),
                         const SizedBox(height: 16),
 
-                        TextFormField(
-                          controller: _reasonController,
+                        // ✅ SCADENZA DOCUMENTO (opzionale)
+                        InkWell(
+                          onTap: state.isLoading
+                              ? null
+                              : () async {
+                            final now = DateTime.now();
+                            final initial = _docExpiry ?? now;
+                            final picked = await showDatePicker(
+                              context: context,
+                              initialDate: initial,
+                              firstDate: DateTime(now.year - 10),
+                              lastDate: DateTime(now.year + 20),
+                            );
+                            if (picked != null && mounted) {
+                              setState(() => _docExpiry = picked);
+                            }
+                          },
+                          child: InputDecorator(
+                            decoration: const InputDecoration(
+                              labelText: 'Scadenza documento (opzionale)',
+                              border: OutlineInputBorder(),
+                              prefixIcon: Icon(Icons.event),
+                            ),
+                            child: Text(
+                              _docExpiry == null ? 'Tocca per selezionare una data' : _formatUiDate(_docExpiry!),
+                              style: Theme.of(context).textTheme.bodyLarge,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 16),
+
+                        // ✅ MOTIVO DELLA VISITA: dropdown + textbox solo se "Altro"
+                        DropdownButtonFormField<String>(
+                          value: _reasonSelected,
+                          isExpanded: true,
+                          items: _reasonOptions
+                              .map((opt) => DropdownMenuItem<String>(
+                            value: opt,
+                            child: Text(opt, overflow: TextOverflow.ellipsis),
+                          ))
+                              .toList(),
+                          onChanged: state.isLoading
+                              ? null
+                              : (v) {
+                            setState(() {
+                              _reasonSelected = v;
+
+                              if (v == null) {
+                                _reasonController.clear();
+                                return;
+                              }
+
+                              if (v == 'Altro') {
+                                // mostra textbox: non precompilare
+                                _reasonController.clear();
+                              } else {
+                                // scelta standard: salva direttamente l'opzione
+                                _reasonController.text = v;
+                              }
+                            });
+                          },
                           decoration: const InputDecoration(
                             labelText: 'Motivo della visita (opzionale)',
                             border: OutlineInputBorder(),
                           ),
-                          maxLines: 2,
                         ),
+                        if (_reasonSelected == 'Altro') ...[
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _reasonController,
+                            enabled: !state.isLoading,
+                            decoration: const InputDecoration(
+                              labelText: 'Specifica il motivo',
+                              border: OutlineInputBorder(),
+                            ),
+                            maxLines: 2,
+                          ),
+                        ],
                         const SizedBox(height: 24),
 
                         SizedBox(
@@ -910,7 +1024,7 @@ class _VisitCheckInPageState extends ConsumerState<VisitCheckInPage> {
   }
 }
 
-/// Autocomplete “kiosk friendly” (come tuo originale)
+/// Autocomplete “kiosk friendly”
 class _HostAutocompleteFormField extends StatefulWidget {
   final String labelText;
   final List<_HostOption> hosts;
@@ -1028,6 +1142,8 @@ class _VisitorOption {
 
   final String? docNumero;
 
+  final DateTime? docExpiry; // ✅ AGGIUNTO
+
   const _VisitorOption({
     required this.id,
     required this.nome,
@@ -1036,6 +1152,7 @@ class _VisitorOption {
     this.title,
     this.docTipoValue,
     this.docNumero,
+    this.docExpiry, // ✅ AGGIUNTO
   });
 
   String get display {
@@ -1048,3 +1165,20 @@ class _VisitorOption {
     return '$base • $doc';
   }
 }
+DateTime? _parseOdooDate(dynamic v) {
+  final s = v?.toString().trim();
+  if (s == null || s.isEmpty) return null;
+
+  // Odoo Date normalmente: "YYYY-MM-DD"
+  try {
+    final parts = s.split('-');
+    if (parts.length != 3) return null;
+    final y = int.parse(parts[0]);
+    final m = int.parse(parts[1]);
+    final d = int.parse(parts[2]);
+    return DateTime(y, m, d);
+  } catch (_) {
+    return null;
+  }
+}
+
