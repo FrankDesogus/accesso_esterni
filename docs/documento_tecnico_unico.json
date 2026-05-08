@@ -1,0 +1,124 @@
+{
+  "document_type": "app_odoo_integration_brief",
+  "source_of_truth": "flutter_repository_only",
+  "app": {
+    "name": "accesso_esterni",
+    "platform": "flutter (kiosk flow used on Android)",
+    "routes": [
+      "/visit/checkin",
+      "/privacy",
+      "/badge/scan",
+      "/checkout-scan"
+    ],
+    "backend": {
+      "protocol": "odoo_jsonrpc",
+      "endpoints": [
+        "/web/session/authenticate",
+        "/web/dataset/call_kw"
+      ]
+    }
+  },
+  "odoo_models_configured": {
+    "visit_model": "x_visite",
+    "badge_model": "x_badge",
+    "visitor_model": "x_visitatori"
+  },
+  "flows": [
+    {
+      "name": "checkin_create_visit",
+      "steps": [
+        "collect visitor/visit data",
+        "find_or_create visitor on x_visitatori",
+        "create visit on x_visite in state=draft with document snapshot"
+      ]
+    },
+    {
+      "name": "privacy_and_signature",
+      "steps": [
+        "require current visit",
+        "collect privacy acceptance and warnings acceptance",
+        "store consent flag and signature base64 on visit"
+      ]
+    },
+    {
+      "name": "badge_assign_and_checkin",
+      "steps": [
+        "scan badge code",
+        "validate badge exists, active, free",
+        "link badge.current_visit -> visit",
+        "update visit.badge + visit.checkin + visit.state=checked_in"
+      ]
+    },
+    {
+      "name": "checkout_by_badge",
+      "steps": [
+        "scan badge code",
+        "resolve current visit from badge",
+        "update visit.state=checked_out + visit.checkout",
+        "release badge.current_visit"
+      ]
+    }
+  ],
+  "field_mapping": {
+    "x_visite": [
+      "x_name",
+      "x_studio_visitatore",
+      "x_studio_societa",
+      "x_studio_motivo_accesso",
+      "x_studio_persona_da_visitare",
+      "x_studio_stato_visita",
+      "x_studio_ingresso",
+      "x_studio_uscita",
+      "x_studio_consenso_privacy",
+      "x_studio_firma",
+      "x_studio_tipo_di_documento_visita",
+      "x_studio_numero_documento_visita",
+      "x_studio_scadenza_documento_visita",
+      "x_studio_badge"
+    ],
+    "x_badge": [
+      "x_studio_codice_badge",
+      "x_studio_attivo",
+      "x_studio_visita_corrente"
+    ],
+    "x_visitatori": [
+      "x_studio_nome",
+      "x_studio_cognome",
+      "x_studio_tipo_di_documento",
+      "x_studio_numero_documento",
+      "x_studio_chiave_documento",
+      "x_studio_scadenza_documento",
+      "x_studio_societa",
+      "x_studio_titolo",
+      "x_name"
+    ]
+  },
+  "rules_in_app": {
+    "visitor_dedup": [
+      "by document key",
+      "fallback by first+last name",
+      "else create"
+    ],
+    "visit_state_machine": [
+      "draft",
+      "checked_in",
+      "checked_out"
+    ],
+    "badge_constraints": [
+      "badge must exist",
+      "badge must be active",
+      "badge must not already have current visit"
+    ]
+  },
+  "security_notes": [
+    "odoo url/db/username/password are statically configured client-side in app config"
+  ],
+  "required_odoo_export_for_full_validation": [
+    "model/field metadata for x_visite, x_visitatori, x_badge, hr.employee",
+    "selection values for status/doc fields",
+    "views and required fields",
+    "ACL and record rules",
+    "automations/server actions",
+    "sql/python constraints"
+  ]
+}
